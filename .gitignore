@@ -1,2 +1,2 @@
-checkpoints/*.pth
-logs/*.txt
+../checkpoints/*.pth
+../logs/*.txt
