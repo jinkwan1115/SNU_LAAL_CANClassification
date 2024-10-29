@@ -1,2 +1,3 @@
-./checkpoints/
-./logs/
+checkpoints/*.pth
+logs/*.txt
+.gitignore
