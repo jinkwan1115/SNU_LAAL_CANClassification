@@ -18,6 +18,7 @@ num_classes = 10
 num_epochs = 20
 batch_size = 32
 learning_rate = 0.001
+patience = 5  # Early stopping 기준 epoch 수
 
 data_loader = DrivingDataLoader_Supervised(file_path, window_size, step_size, test_size=0.2, val_size=0.1)
 data_loader.load_data()
@@ -41,6 +42,14 @@ model = TimeSeriesClassifier(input_dim=input_dim, hidden_dim=hidden_dim, encoder
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+best_val_loss = float('inf')
+epochs_no_improve = 0
+best_model_path = './checkpoints/best_model.pth'
+log_path = './logs/log.txt'
+
+with open(log_path, 'w') as log_file:
+    log_file.write("Epoch, Train Loss, Train Accuracy, Val Loss, Val Accuracy\n")
+
 for epoch in range(num_epochs):
     model.train()
     train_loss = 0.0
@@ -60,7 +69,8 @@ for epoch in range(num_epochs):
         correct += predicted.eq(labels).sum().item()
 
     train_accuracy = 100. * correct / total
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss / len(train_loader):.4f}, Train Accuracy: {train_accuracy:.2f}%")
+    avg_train_loss = train_loss / len(train_loader)
+    print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%")
 
     # Validation 단계
     model.eval()
@@ -78,9 +88,28 @@ for epoch in range(num_epochs):
             correct += predicted.eq(labels).sum().item()
 
     val_accuracy = 100. * correct / total
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {val_loss / len(val_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%")
+    avg_val_loss = val_loss / len(val_loader)
+    print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.2f}%")
+
+    # 로그 파일에 기록
+    with open(log_path, 'a') as log_file:
+        log_file.write(f"{epoch + 1}, {avg_train_loss:.4f}, {train_accuracy:.2f}, {avg_val_loss:.4f}, {val_accuracy:.2f}\n")
+
+    # Early Stopping 조건 확인
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        epochs_no_improve = 0
+        torch.save(model.state_dict(), best_model_path)  # 가장 좋은 모델 저장
+        print("Model saved with Validation Loss: {:.4f}".format(best_val_loss))
+    else:
+        epochs_no_improve += 1
+
+    if epochs_no_improve >= patience:
+        print("Early stopping triggered.")
+        break
 
 # Test 단계
+model.load_state_dict(torch.load(best_model_path))  # 가장 좋은 모델 로드
 model.eval()
 test_loss = 0.0
 correct = 0
