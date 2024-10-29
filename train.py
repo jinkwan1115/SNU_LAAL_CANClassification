@@ -1,45 +1,60 @@
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from data_loader import load_data
-from model import TimeSeriesModel
+from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
 
-# Load data
-train_loader, test_loader = load_data("driving.csv")
+from model import TimeSeriesClassifier
+from data_loader import DrivingDataLoader_Supervised
 
-# Model parameters
-input_size = next(iter(train_loader))[0].shape[1]  # Dynamically get the input size
-num_classes = len(set(next(iter(train_loader))[1].numpy()))  # Number of unique classes in the dataset
+file_path = './data/driving.csv'
+window_size = 10
+step_size = 1
 
-# Initialize model, loss function, and optimizer
-model = TimeSeriesModel(input_size=input_size, num_classes=num_classes)
+input_dim = 51  # X_window의 feature 수
+hidden_dim = 64
+encoder_output_dim = hidden_dim * ((window_size + 1) // 2**2)  # Conv 레이어 수에 맞춰 조정
+num_classes = 10
+
+num_epochs = 10
+batch_size = 32
+learning_rate = 0.001
+
+data_loader = DrivingDataLoader_Supervised(file_path, window_size, step_size)
+data_loader.load_data()
+class_windows = data_loader.get_class_windows()
+
+X, y = [], []
+for label, windows in class_windows.items():
+    for window in windows:
+        X.append(window.values)
+        y.append(label)
+X = torch.tensor(np.array(X), dtype=torch.float32)
+y = torch.tensor(np.array(y), dtype=torch.long)
+
+dataset = TensorDataset(X, y)
+train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+model = TimeSeriesClassifier(input_dim=input_dim, hidden_dim=hidden_dim, encoder_output_dim=encoder_output_dim, num_classes=num_classes)
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-# Training the model
-num_epochs = 20
 for epoch in range(num_epochs):
     model.train()
-    running_loss = 0.0
-    for inputs, labels in train_loader:
+    epoch_loss = 0.0
+    correct = 0
+    total = 0
+
+    for i, (inputs, labels) in enumerate(train_loader):
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        running_loss += loss.item()
-    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}")
 
-# Evaluation
-model.eval()
-correct = 0
-total = 0
-with torch.no_grad():
-    for inputs, labels in test_loader:
-        outputs = model(inputs)
-        _, predicted = torch.max(outputs, 1)
+        epoch_loss += loss.item()
+        _, predicted = outputs.max(1)
         total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        correct += predicted.eq(labels).sum().item()
 
-print(f"Test Accuracy: {100 * correct / total:.2f}%")
+    accuracy = 100. * correct / total
+    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(train_loader):.4f}, Accuracy: {accuracy:.2f}%")
